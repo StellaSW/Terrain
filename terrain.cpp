@@ -1,5 +1,12 @@
+/**
+  *author: Shengyu wu
+  */
+
 #include <stdio.h>
 #include <stdlib.h>
+#include <iostream>
+#include <math.h>
+#include <time.h>
 
 #ifdef __APPLE__
 #include <OpenGL/gl.h>
@@ -11,237 +18,269 @@
 #include <GL/freeglut.h>
 #endif
 
-#include <iostream>
-#include "math.h"
+using namespace std;
 
 //Globals
-int size_x;
-int size_z;
-int terrainType;
-//terrain x and z and iteration
-int terX = 50;
-int terZ = 50;
-int terIt = 50;
-const int fault = 0;
-const int circle = 1;
+float camPos[] = {0, 0, 200}; //where the camera is
+int angleX = 44;
+int angleY = -20;
+int angleZ = 0;
+
 //maximum and minimum draw_height values
 float minHeight, maxHeight;
+int mode = 1;               // 1 = solid polygons; 2 = wireframe; 3 = solid polygons & wireframe
 
-float heightMap[300][300];
-int drawArray[4][2] = {{0, 0}, {0, 1}, {1, 1}, {1, 0}};
-float normalVectors[1000][1000][3];
+const int terrainSize = 100; 
+float heights[terrainSize][terrainSize];
+float normals[terrainSize][terrainSize][3];
+bool definedHeights = false;
+bool isCircle = true;
+bool isWireframe = false;
+bool isQuad = true;
+bool shadingFlat = true;
+const int iterations = 50;
+int circles[iterations][4];
 
-float camPos[] = {80, 100, 60}; //where the camera is
-float camUp[] = {0, 1, 0};      //up vector of the camera
-float camTarget[] = {0, 0, 0};  //where the camera is looking at
-float camSpeed = 0.5f;
+float m_amb[] = {0.19125, 0.0735, 0.0225, 1};
+float m_dif[] = {0.7038, 0.27048, 0.0828, 1};
+float m_spec[] = {0.256777, 0.137622, 0.086014, 1};
+float shiny = 0.3;
 
-float m_amb[] = {0.16, 0.22, 0.16, 1.0};
-float m_dif[] = {0.54, 0.89, 0.63, 1.0};
-float m_spec[] = {0.32, 0.32, 0.32, 1.0};
-float shiny = 12.8;
-
-float pos[4] = {2, 2, 2, 1};
-float amb[4] = {1, 0.5, 0.5, 1};
-float dif[4] = {1, 0.5, 0.3, 1};
+float pos[4] = {50, -500, 50, 1};
+float amb[4] = {0.1, 0.1, 0.1, 1};
+float dif[4] = {0.8, 0.8, 0.8, 1};
 float spc[4] = {0.5, 0.5, 0.5, 1};
 
 /*calculate normal vector 
 http://www.lighthouse3d.com/opengl/terrain/index.php?normals*/
 void calNormalVector()
 {
-    float a[3];
-    float b[3];
-    float c[3];
-    float d;
-    for (int x = 0; x < size_x; x++)
+    float x1, y1, z1, x2, y2, z2, xc, yc, zc;
+    for (int x = 0; x < terrainSize - 1; x++)
     {
-        for (int z = 0; z < size_z; z++)
+        for (int z = 0; z < terrainSize - 1; z++)
         {
-            a[0] = x + 1;
-            a[1] = heightMap[x + 1][z] - heightMap[x][z];
-            a[2] = z;
+            x1 = x + 1;
+            y1 = heights[x + 1][z] - heights[x][z];
+            z1 = z;
 
-            b[0] = x + 1;
-            b[1] = heightMap[x + 1][z + 1] - heightMap[x][z];
-            b[2] = z + 1;
+            x2 = x + 1;
+            y2 = heights[x + 1][z + 1] - heights[x][z];
+            z2 = z + 1;
 
-            //calculate cross product
-            c[0] = a[1] * b[2] - a[2] * b[1];
-            c[1] = a[2] * b[0] - a[0] * b[2];
-            c[2] = a[0] * b[1] - a[1] * b[0];
-            d = sqrtf(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
+            xc = y1 * z2 - z1 * y2;
+            yc = z1 * x2 - x1 * z2;
+            zc = x1 * y2 - y1 * x2;
+            float n = sqrtf(xc * xc + yc * yc + zc * zc);
 
-            //normal vectors
-            normalVectors[x][z][0] = c[0] / d;
-            normalVectors[x][z][1] = c[1] / d;
-            normalVectors[x][z][2] = c[2] / d;
+            normals[x][z][0] = xc / n;
+            normals[x][z][1] = yc / n;
+            normals[x][z][2] = zc / n;
         }
     }
-}
-
-void display()
-{
-
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-    glMatrixMode(GL_MODELVIEW);
-    glLoadIdentity();
-    gluLookAt(camPos[0], camPos[1], camPos[2],
-              camTarget[0], camTarget[1], camTarget[2],
-              camUp[0], camUp[1], camUp[2]);
-
-    glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, m_amb);
-    glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, m_dif);
-    glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, m_spec);
-    glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, shiny);
-
-    for (int x = 1; x < size_x; x++)
-    {
-        for (int z = 1; z < size_z; z++)
-        {
-            glBegin(GL_QUADS);
-            for (int i = 0; i < 4; i++)
-            {
-                //draw polygon for each point
-                int draw_x = x - drawArray[i][0];
-                int draw_z = z - drawArray[i][1];
-                float draw_y = heightMap[draw_x][draw_z];
-                float draw_height = (draw_y - minHeight) / (maxHeight - minHeight);
-                //set different color with respect to height
-                if (draw_height >= 0.4)
-                {
-                    glColor3f(1.0, 1.0, 1.0);
-                }
-                else if (draw_height >= 0.1)
-                {
-                    glColor3f(0.0, 0.5, 0.0);
-                }
-                else
-                {
-                    glColor3f(0.0, 0.0, 0.5);
-                }
-
-                glNormal3fv(normalVectors[draw_x][draw_z]);
-                glVertex3d(draw_x, draw_y, draw_z);
-            }
-        }
-        glEnd();
-    }
-    glutSwapBuffers();
 }
 
 /* fault algorithm method
  http://www.lighthouse3d.com/opengl/terrain/index.php?impdetails*/
-void faultAlgorithm(int terIt)
+void faultAlgorithm()
 {
-    for (int i = 0; i < terIt; i++)
+    for (int i = 0; i < 200; i++)
     {
-        float v = static_cast<float>(rand());
-        float a = sin(v);
-        float b = cos(v);
-        float d = sqrt(size_x * size_x + size_z * size_z);
+        float r = static_cast<float>(rand());
+        float d = sqrt(terrainSize * terrainSize + terrainSize * terrainSize);
         float c = (static_cast<float>(rand()) / static_cast<float>(RAND_MAX)) * d - d / 2;
 
-        // for each x,z point on the map determine if increase or decrease draw_height
-        for (int x = 0; x < size_x; x++)
+        for (int x = 0; x < terrainSize; x++)
         {
-            for (int z = 0; z < size_z; z++)
+            for (int z = 0; z < terrainSize; z++)
             {
-                if (a * x + b * z - c > 0)
-                { //increase draw_height
-                    heightMap[x][z] += 1;
-                    if (heightMap[x][z] > maxHeight)
-                    {
-                        maxHeight = heightMap[x][z];
-                    }
-                }
+                if (sin(r) * x + cos(r) * z - c > 0)
+                    heights[x][z]++;
                 else
-                {
-                    //decrease draw_height
-                    heightMap[x][z] -= 1;
-                    if (heightMap[x][z] < minHeight)
-                    {
-                        minHeight = heightMap[x][z];
-                    }
-                }
+                    heights[x][z]--;
             }
         }
     }
 }
 /* circles algorithm method
 http://www.lighthouse3d.com/opengl/terrain/index.php?circles */
-void circlesAlgorithm(int terIt)
+void randCircles()
 {
-    for (int i = 0; i < terIt; i++)
+    srand(time(NULL));
+    for (int i = 0; i < iterations; i++) // 50 iterations
     {
-        //create a circle with random x and y and radius
-        int random_x = rand() % size_x;
-        int random_z = rand() % size_z;
-        //terrainCircleSize defines the circle size and disp defines the maximum draw_height variation
-        int terrainCircleSize = (rand() % 24) + 1;
-        float disp = (rand() % 12) + 1;
-        for (int x = 0; x < size_x; x++)
-        {
-            for (int z = 0; z < size_z; z++)
-            {
-                int tx = x - random_x;
-                int tz = z - random_z;
-                //get the distance from circle center
-                float dist = sqrtf((tx * tx) + (tz * tz));
-                float pd = (dist * 2) / terrainCircleSize;
-                //check if value is within the circle
-                if (fabs(pd) <= 1.0)
-                {
-                    //new draw_height
-                    heightMap[x][z] += (disp / 2) + (cos(pd * 3.14) * (disp / 2));
-                }
-            }
-        }
+        circles[i][0] = rand() % (terrainSize - 1); // circle vertex x
+        circles[i][1] = rand() % (terrainSize - 1); // circle vertex y
+        circles[i][2] = rand() % 30 - 15;    // disp: random -15 ~ 15
+        circles[i][3] = rand() % 10 + 10;    // terrainCircleSize random 10 ~ 20
     }
-    //find new max and min draw_height values
-    minHeight = 0;
-    maxHeight = 1;
+}
 
-    for (int x = 0; x < size_x; x++)
+void circleAlgorithm(int xc, int zc, int disp, int terrainCircleSize)
+{
+    for (int x = 1; x <= terrainSize - 1; x++)
     {
-        for (int z = 0; z < size_z; z++)
+        for (int z = 1; z <= terrainSize - 1; z++)
         {
-            if (heightMap[x][z] < minHeight)
-            {
-                minHeight = heightMap[x][z];
-            }
-            else if (heightMap[x][z] > maxHeight)
-            {
-                maxHeight = heightMap[x][z];
-            }
+            float pd = sqrt(pow(xc - x, 2) + pow(zc - z, 2)) / terrainCircleSize;
+            if (fabs(pd) <= 1.0)
+                heights[x][z] += disp / 2 + cos(pd * 3.14) * disp / 2;
         }
     }
 }
 
-//initialize terrain
-void initTerrain()
+void resetHeightmap(void)
 {
-    size_x = 50;
-    size_z = 50;
-    terrainType = circle;
-    circlesAlgorithm(50);
+    for (int x = 0; x <= terrainSize - 1; x++)
+        for (int z = 0; z <= terrainSize - 1; z++)
+            heights[x][z] = 0;
 }
 
 //generalize terrain
-void terrain(int terX, int terZ, int type_op, int terIt)
+void heightmap(void)
 {
-    size_x = terX;
-    size_z = terZ;
-    terrainType = type_op;
-    if (terrainType == circle)
+    resetHeightmap();
+    if (isCircle)
     {
-        circlesAlgorithm(terIt);
+        randCircles();
+        for (int i = 0; i < 100; i++)
+        {
+            circleAlgorithm(circles[i][0], circles[i][1], circles[i][2], circles[i][3]);
+        }
     }
-    else if (terrainType == fault)
+    else
     {
-        faultAlgorithm(terIt);
+        faultAlgorithm();
     }
+    /* define min height and max height*/
+    minHeight = 0;
+    maxHeight = 0;
+    for (int i = 0; i < 50; i++)
+    {
+        for (int j = 0; j < 50; j++)
+        {
+            if (heights[i][j] < minHeight)
+                minHeight = heights[i][j];
+            else if (heights[i][j] > maxHeight)
+                maxHeight = heights[i][j];
+        }
+    }
+    definedHeights = true; // to avoid the duplication of heightmap algorithm
+
     calNormalVector();
+}
+
+void setVertex(int x, int z)
+{
+    float y = heights[x + terrainSize / 2][z + terrainSize / 2]; // y is height
+    float r, g, b;
+    if (!isWireframe)
+    {
+        float percent = (y - minHeight) / (maxHeight - minHeight);
+        if (percent > 0.5) // from yellow (low) to red (hight)
+        {
+            r = 1;
+            g = 1 - (percent - 0.5) * 2;
+            b = 0;
+        }
+        else // from green (low) to yellow (high)
+        {
+            r = percent * 2;
+            g = 1;
+            b = 0;
+        }
+        glColor3f(r, g, b);
+    }
+    else
+    {
+        glColor3f(1, 1, 1); // white colour for wireframe in mode 3
+    }
+    glNormal3fv(normals[x + terrainSize / 2][z + terrainSize / 2]); // Normals
+    glVertex3f(x, y, z);
+}
+
+void drawTerrain(void)
+{
+    if (isQuad)
+        glBegin(GL_QUAD_STRIP);
+    else
+        glBegin(GL_TRIANGLE_STRIP);
+    for (int z = -terrainSize / 2; z <= terrainSize / 2 - 2; z++)
+    {
+        if (z % 2 == 0)
+        {
+            for (int x = -terrainSize / 2; x <= terrainSize / 2 - 1; x++)
+            {
+                setVertex(x, z);
+                setVertex(x, z + 1);
+            }
+        }
+        else
+        {
+            for (int x = terrainSize / 2 - 1; x >= -terrainSize / 2; x--)
+            {
+                setVertex(x, z + 1);
+                setVertex(x, z);
+            }
+        }
+    }
+    glEnd();
+}
+
+void display(void)
+{
+
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    gluLookAt(camPos[0], camPos[1], camPos[2], 0, 0, 0, 0, 1, 0);
+    
+    glRotatef(angleX, 1, 0, 0);
+    glRotatef(angleY, 0, 1, 0);
+    glRotatef(angleZ, 0, 0, 1);
+
+    if (!definedHeights)
+    {
+        heightmap();
+    }
+
+    glMaterialfv(GL_FRONT_AND_BACK, GL_AMBIENT, m_amb);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_DIFFUSE, m_dif);
+    glMaterialfv(GL_FRONT_AND_BACK, GL_SPECULAR, m_spec);
+    glMaterialf(GL_FRONT_AND_BACK, GL_SHININESS, shiny);
+
+    /* 3 modes */
+    if (mode == 1)
+    {
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        drawTerrain();
+    }
+    else if (mode == 2)
+    {
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        drawTerrain();
+    }
+    else
+    {
+        isWireframe = true;
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+        drawTerrain();
+        isWireframe = false;
+        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        drawTerrain();
+    }
+    glutSwapBuffers();
+}
+
+void reshape(int w, int h)
+{
+    glMatrixMode(GL_PROJECTION);
+    glLoadIdentity();
+    //gluOrtho2D(0, w, 0, h);
+    gluPerspective(45, (float)((w + 0.0f) / h), 1, 1000);
+
+    glMatrixMode(GL_MODELVIEW);
+    glViewport(0, 0, w, h);
 }
 
 void init(void)
@@ -251,7 +290,7 @@ void init(void)
 
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    gluPerspective(45, 1, 1, 300);
+    gluPerspective(45, 1, 1, 500);
 
     glEnable(GL_DEPTH_TEST);
 
@@ -263,7 +302,7 @@ void init(void)
     glLightfv(GL_LIGHT0, GL_AMBIENT, amb);
     glLightfv(GL_LIGHT0, GL_SPECULAR, spc);
 
-    //enalbe for wireframe representation
+    //enable for wireframe representation
     glFrontFace(GL_CCW);
     glCullFace(GL_BACK);
     glEnable(GL_CULL_FACE);
@@ -280,24 +319,32 @@ void keyboard(unsigned char key, int x, int y)
         break;
     case 'r':
     case 'R':
-        terrain(terX, terZ, terrainType, terIt);
+        definedHeights = false;
         break;
     //wireframe representation
     case 'w':
     case 'W':
-        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        break;
-    case 'e':
-    case 'E':
-        glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+        mode++;
+        mode = mode % 3;
         break;
     case 'f':
     case 'F':
-        glShadeModel(GL_FLAT);
+        isCircle = !isCircle;
+        heightmap();
         break;
     case 's':
     case 'S':
-        glShadeModel(GL_SMOOTH);
+        if (shadingFlat)
+        {
+            shadingFlat = false;
+            glShadeModel(GL_SMOOTH);
+        }
+        else
+        {
+            shadingFlat = true;
+            glShadeModel(GL_FLAT);
+        }
+        break;
         break;
     case 'k':
     case 'K':
@@ -309,8 +356,25 @@ void keyboard(unsigned char key, int x, int y)
         glEnable(GL_LIGHTING);
         glEnable(GL_LIGHT0);
         break;
+    case 'a':
+    case 'A':
+        if (angleZ > -90)
+            angleZ -= 2;
+        break;
+    case 'd':
+    case 'D':
+        if (angleZ < 90)
+            angleZ += 2;
+        break;
+    case 't':
+    case 'T':
+        isQuad = false;
+        break;
+    case 'y':
+    case 'Y':
+        isQuad = true;
+        break;
     }
-    glutPostRedisplay();
 }
 
 void special(int key, int x, int y)
@@ -318,84 +382,29 @@ void special(int key, int x, int y)
     switch (key)
     {
     case GLUT_KEY_UP:
-        camPos[1] += camSpeed;
+        if (angleX > -90)
+        angleX -= 2;
         break;
     case GLUT_KEY_DOWN:
-        camPos[1] -= camSpeed;
+        if (angleX < 90)
+        angleX += 2;
         break;
     case GLUT_KEY_LEFT:
-        camPos[2] += camSpeed;
+        if (angleY > -90)
+        angleY -= 2;
         break;
     case GLUT_KEY_RIGHT:
-        camPos[2] -= camSpeed;
+        if (angleY < 90)
+        angleY += 2;
         break;
     }
+    glutPostRedisplay();
 }
 
 void FPS(int val)
 {
     glutPostRedisplay();
-    glutTimerFunc(17, FPS, 0); // 1sec = 1000, 60fps = 1000/60 = ~17
-}
-
-void menuProc1(int value)
-{
-    if (value = 5){
-        terrainType == circle;
-        terrain(terX, terZ, circle, terIt);
-    }
-    if (value = 6){
-        terrainType == fault;
-        terrain(terX, terZ, fault, terIt);
-    }
-    glutPostRedisplay();
-}
-
-void menuProc2(int value)
-{
-    switch (value)
-    {
-    case 1:
-        terX = 50;
-        terZ = 50;
-        break;
-    case 2:
-        terX = 100;
-        terZ = 100;
-        break;
-    case 3:
-        terX = 150;
-        terZ = 150;
-        break;
-    case 4:
-        terX = 300;
-        terZ = 300;
-        break;
-    }
-    terrain(terX, terZ, terrainType, terIt);
-    glutPostRedisplay();
-}
-
-void menuProc(int value)
-{
-}
-
-void createOurMenu()
-{
-    int submenu_1 = glutCreateMenu(menuProc1);
-    glutAddMenuEntry("circle", 5);
-    glutAddMenuEntry("default", 6);
-
-    int submenu_2 = glutCreateMenu(menuProc2);
-    glutAddMenuEntry("50 x 50", 1);
-    glutAddMenuEntry("100 x 100", 2);
-    glutAddMenuEntry("150 x 150", 3);
-    glutAddMenuEntry("300 x 300", 4);
-
-    int main_id = glutCreateMenu(menuProc);
-    glutAddSubMenu("terrain type", submenu_1);
-    glutAddSubMenu("terrain size", submenu_2);
-    glutAttachMenu(GLUT_RIGHT_BUTTON);
+    glutTimerFunc(0, FPS, 0); // 1sec = 1000, 60fps = 1000/60 = ~17
 }
 
 void callbackinit()
@@ -403,20 +412,20 @@ void callbackinit()
     glutDisplayFunc(display);
     glutKeyboardFunc(keyboard);
     glutSpecialFunc(special);
+    glutReshapeFunc(reshape);
     glutTimerFunc(0, FPS, 0);
 }
 
 void readme(void)
 {
-    printf("\nw : EnableWireframe\n");
-    printf("\ne : DisableWireframe\n");
+    printf("\nw : Switch mode(1. solid polygons; 2. wireframe; 3. both of them)\n");
     printf("\nl : Enable Lighting \n");
     printf("\nk : Disable Lighting\n");
-    printf("\nf : Flat shading\n");
-    printf("\ns : Smooth shading\n");
+    printf("\nf : Switch between circle algorithm and fault algorithm\n");
+    printf("\ns : Switch between flat shading and Gouraud shading\n");
     printf("\nr : Random Terrain\n");
     printf("\nq : Quit");
-    printf("\nRight Click: menu \n");
+    printf("\narrow keys: Rotate model");
 }
 
 int main(int argc, char **argv)
@@ -428,11 +437,11 @@ int main(int argc, char **argv)
     glutInitWindowSize(800, 600);
     glutInitWindowPosition(50, 50);
     glutCreateWindow("Terrain");
+    callbackinit();
+
+    init();
 
     readme();
-    initTerrain();
-    callbackinit();
-    init();
-    createOurMenu();
+
     glutMainLoop();
 }
