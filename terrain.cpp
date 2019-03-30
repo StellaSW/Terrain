@@ -21,9 +21,9 @@
 using namespace std;
 
 //Globals
-float camPos[] = {0, 0, 200}; //where the camera is
-int angleX = 44;
-int angleY = -20;
+float camPos[] = {0, 0, 100}; //where the camera is
+int angleX = 30;
+int angleY = -10;
 int angleZ = 0;
 
 //maximum and minimum draw_height values
