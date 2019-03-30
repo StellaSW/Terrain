@@ -18,3 +18,13 @@ q : Quit
 arrow keys and 'a' 'd': Rotate camera by x, y, z axis
 
 Here are some screenshots for the program:
+https://github.com/StellaSW/terrain/blob/master/t1.png
+
+
+https://github.com/StellaSW/terrain/blob/master/t2.png
+
+
+https://github.com/StellaSW/terrain/blob/master/t3.png
+
+
+https://github.com/StellaSW/terrain/blob/master/t4.png
